@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case 001 — Identity &amp; access administration in Microsoft Entra | Lawrence Mbah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="../index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="../index.html#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+    </nav>
+  </div>
+</header>
+
+<div class="file-header">
+  <div class="wrap">
+    <a class="back" href="../index.html#cases">&larr; All case files</a>
+    <div class="file-meta">
+      <span>CASE 001</span>
+      <span class="status resolved" style="display:inline-block;">RESOLVED</span>
+      <span>ENV: Microsoft Entra ID</span>
+      <span>CREDENTIAL: Microsoft Applied Skills</span>
+    </div>
+    <h1>Managing identity and access in Microsoft Entra: users, groups, roles, and Conditional Access</h1>
+    <p style="max-width:60ch; color:var(--ink-soft);">A hands-on identity and access administration exercise completed in a live Microsoft Entra tenant, covering user lifecycle, group-based role assignment, self-service password reset configuration, and Conditional Access impact analysis — completed as part of earning the Microsoft Applied Skills credential <em>Get started with identities and access using Microsoft Entra</em>.</p>
+    <div class="stack">
+      <span class="tag-pill">Microsoft Entra ID</span>
+      <span class="tag-pill">IAM</span>
+      <span class="tag-pill">Conditional Access</span>
+      <span class="tag-pill">SSPR</span>
+      <span class="tag-pill">RBAC</span>
+    </div>
+  </div>
+</div>
+
+<article class="wrap">
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#environment">Environment</a>
+    <a href="#users">User &amp; license management</a>
+    <a href="#groups">Group-based role assignment</a>
+    <a href="#security-config">Documenting security configuration</a>
+    <a href="#conditional-access">Conditional Access impact analysis</a>
+    <a href="#credential">Credential earned</a>
+    <a href="#lessons">Lessons learned</a>
+  </nav>
+
+  <div class="case-body">
+
+    <h2 id="summary">Summary</h2>
+    <p>This case covers a full identity and access administration cycle inside Microsoft Entra ID: onboarding a new user with the correct license and attributes, assigning administrative roles with the correct scope, building a role-assignable security group, auditing and documenting self-service password reset (SSPR) and password protection settings, and using the Conditional Access <strong>What If</strong> tool to determine exactly which access policies apply to a specific real-world sign-in scenario. The work was completed as the hands-on assessment for the Microsoft Applied Skills credential <em>Get started with identities and access using Microsoft Entra</em>, which I passed.</p>
+
+    <h2 id="environment">Environment</h2>
+    <ul>
+      <li>Live Microsoft Entra ID tenant provisioned as part of the Microsoft Applied Skills interactive lab assessment</li>
+      <li>Sample organization (Contoso-style tenant) with pre-existing users, groups, and Conditional Access policies to audit and extend</li>
+      <li>Tools used: Microsoft Entra admin center (entra.microsoft.com) and the Conditional Access What If analysis tool</li>
+    </ul>
+
+    <h2 id="users">User &amp; license management</h2>
+    <p>The first task was standard new-hire onboarding in Entra: create a disabled account (pending start date) with the correct job metadata, then license it.</p>
+    <ul>
+      <li>Created user <code>Ben Smith</code> with account sign-in disabled, job title <em>Accountant</em>, department <em>Finance</em>, and usage location set to <em>United States</em> — usage location has to be set before a license can be assigned</li>
+      <li>Assigned an Office 365 E5 license to the new account</li>
+      <li>Assigned the <strong>Billing Administrator</strong> role to an existing user (Lynne Robbins) as an active assignment</li>
+      <li>Invited an external guest user (Arlene Huff, a.huff@contoso.com) to collaborate, with job title and company metadata set</li>
+    </ul>
+    <figure>
+      <img src="screenshots/users-list.png" alt="Entra Users list showing Ben Smith and the invited guest user">
+      <figcaption>The Users list after onboarding Ben Smith and inviting Arlene Huff as a guest.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/ben-smith-license.png" alt="Ben Smith's Office 365 E5 license assignment">
+      <figcaption>Ben Smith's licenses, confirming the Office 365 E5 assignment is active.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/billing-admin-role.png" alt="Billing Administrator role assignment showing Lynne Robbins">
+      <figcaption>Billing Administrator role assignments, confirming Lynne Robbins as an active assignment.</figcaption>
+    </figure>
+
+    <h2 id="groups">Group-based role assignment</h2>
+    <p>Rather than assigning roles to individual users directly, the better-practice approach is a role-assignable security group — it's easier to audit and easier to revoke access from in bulk later.</p>
+    <ul>
+      <li>Created a role-assignable security group <code>Tech1</code>, added Alex Wilber as a member, and assigned it the <strong>Reports Reader</strong> role directly on the group</li>
+      <li>Updated the existing <code>SSPR</code> security group: added Alex Wilber as an owner and Megan Bowen as a member</li>
+    </ul>
+    <figure>
+      <img src="screenshots/tech1-overview.png" alt="Tech1 security group overview">
+      <figcaption>The Tech1 security group, created as role-assignable.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/tech1-members.png" alt="Tech1 group members showing Alex Wilber">
+      <figcaption>Tech1 membership, confirming Alex Wilber as a direct member.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/tech1-assigned-roles.png" alt="Tech1 group assigned roles showing Reports Reader">
+      <figcaption>Tech1's assigned roles — Reports Reader, active and directly assigned to the group.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/sspr-owners.png" alt="SSPR group owners showing Alex Wilber">
+      <figcaption>The SSPR group's owners, after adding Alex Wilber.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/sspr-members.png" alt="SSPR group members showing Megan Bowen">
+      <figcaption>The SSPR group's members, after adding Megan Bowen.</figcaption>
+    </figure>
+
+    <h2 id="security-config">Documenting security configuration</h2>
+    <p>The next task simulated a common real request: an internal team needs current security configuration documented accurately, not from memory or outdated notes. I pulled the live settings directly from three places in the admin center:</p>
+    <ul>
+      <li><strong>Password protection</strong> (Authentication methods &gt; Password protection): the custom banned password list and lockout threshold settings</li>
+      <li><strong>Password reset</strong> (Password reset &gt; Properties and Authentication methods): self-service password reset was set to <code>None</code> for regular end users (admins are always SSPR-enabled by policy), with the specific reset methods and number of methods required documented separately</li>
+      <li><strong>Named locations</strong> (Conditional Access &gt; Named locations): the countries-based named locations already configured for use in Conditional Access policies</li>
+    </ul>
+    <p>Each of these was recorded in the organization's configuration-tracking file, matched field-by-field against the live settings rather than assumed. The password protection settings showed a lockout threshold of 15 attempts, a 120-second lockout duration, and a custom banned password list including the word "Falcon." The password reset policy required just 1 authentication method to reset a password, with Passkey (FIDO2), Microsoft Authenticator, and Email OTP enabled as valid methods, while SMS and Voice Call were not. The named locations configured for Conditional Access covered Algeria and Sweden.</p>
+    <figure>
+      <img src="screenshots/password-protection-documented.png" alt="Documented password protection settings: lockout threshold, duration, and banned password list">
+      <figcaption>Password protection settings as documented: lockout threshold, duration, and custom banned password list.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/password-reset-documented.png" alt="Documented password reset authentication method settings">
+      <figcaption>Password reset (SSPR) authentication methods as documented.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/named-locations-documented.png" alt="Documented named locations: Algeria and Sweden">
+      <figcaption>Named locations documented for use in Conditional Access.</figcaption>
+    </figure>
+
+    <h2 id="conditional-access">Conditional Access impact analysis</h2>
+    <p>The last task used the <strong>What If</strong> tool to answer a specific access question: which Conditional Access policies apply when a named user signs in under a defined set of risky-looking conditions?</p>
+    <p>Scenario tested: user <strong>Diego Siciliani</strong>, signing in to <strong>Office 365 Exchange Online</strong> via a <strong>Browser</strong>, from an <strong>Android</strong> device, from the <strong>United States</strong>, from IP <code>131.107.1.10</code>, with sign-in risk set to <strong>High</strong>.</p>
+    <figure>
+      <img src="screenshots/whatif-applies.png" alt="What If tool results showing Policy2, Policy3, and Policy4 apply">
+      <figcaption>Policies that apply to the scenario: Policy2 (on), Policy3 and Policy4 (report-only).</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/whatif-not-apply.png" alt="What If tool results showing Policy1 does not apply">
+      <figcaption>Policy1 does not apply to this scenario.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/policy2-details.png" alt="Policy2 details showing high sign-in risk and compliant device or app protection requirement">
+      <figcaption>Policy2's configuration: triggers on high sign-in risk, requiring a compliant device or an app protection policy.</figcaption>
+    </figure>
+    <p>Policy2 applied because it's directly assigned to Diego Siciliani and requires either a compliant device or an app protection policy given the high sign-in risk in the tested scenario. Policy3 and Policy4 also applied since they're assigned to All users, though both are in Report-only mode — meaning they'd log the event without actually blocking access. Policy1 did not apply at all, and the reason turned out to be simpler than a condition mismatch: it's assigned only to Alex Wilber, so it was never in scope for Diego's sign-in regardless of device, location, or risk level.</p>
+    <figure>
+      <img src="screenshots/whatif-documented.png" alt="What If findings documented in the Contoso Data Editor">
+      <figcaption>What If findings recorded: which policies apply and their current state.</figcaption>
+    </figure>
+    <p>I then went through each existing Conditional Access policy individually and documented exactly which users or groups each one targets, since a policy's real-world effect depends entirely on its assignment — a strong policy assigned to the wrong (or no) users provides no protection at all.</p>
+    <figure>
+      <img src="screenshots/ca-users-documented.png" alt="Conditional Access Users documentation showing each policy's assigned users">
+      <figcaption>Documented user assignment for each Conditional Access policy — Policy1 (Alex Wilber), Policy2 (Diego Siciliani), Policy3 and Policy4 (All users).</figcaption>
+    </figure>
+
+    <h2 id="credential">Credential earned</h2>
+    <p>This work was assessed and passed as the Microsoft Applied Skills credential <a href="https://learn.microsoft.com/en-us/credentials/applied-skills/get-started-with-identities-and-access-using-microsoft-entra" target="_blank" rel="noopener"><strong>Get started with identities and access using Microsoft Entra</strong></a>, which stays on my Microsoft transcript permanently. It is online-verifiable, with a unique credential ID and issue date, and was signed as a Microsoft-issued credential.</p>
+    <figure>
+      <img src="screenshots/credential-result.png" alt="Microsoft Applied Skills credential certificate for Get started with identities and access using Microsoft Entra, issued to Mbah Lawrence Chima, earned 16 September 2026, credential ID 2DD84CA48227DAAB, status Active and Online Verifiable">
+      <figcaption>Credential earned: Microsoft Applied Skills — Get started with identities and access using Microsoft Entra (Credential ID: 2DD84CA48227DAAB, earned 16 September 2026, online verifiable).</figcaption>
+    </figure>
+
+    <h2 id="lessons">Lessons learned</h2>
+    <p>This project made clear that a policy's real-world effect depends as much on who it's assigned to and what state it's in as on its grant controls — Policy1 looked structurally similar to the others but simply didn't apply because it targeted a different user, and Policy3/Policy4 being in Report-only mode meant they'd have caught the risky sign-in in logs without actually stopping it. It also reinforced why group-based role assignment, like giving Tech1 the Reports Reader role rather than assigning it to Alex Wilber directly, is the better pattern in practice: it's one place to audit and revoke access instead of chasing it down per user across a growing organization.</p>
+
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · <a href="../index.html#cases">Back to case files</a>
+  </div>
+</footer>
+
+</body>
+</html>
