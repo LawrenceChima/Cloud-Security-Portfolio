@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lawrence Mbah — Cloud Security Case Files</title>
+<meta name="description" content="Hands-on cloud security investigations: IAM, SIEM, network encryption, and vulnerability assessment work, documented like real incident reports.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="mailto:mbahlawrnce01@yahoo.com">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <div class="focus-line">Specialization: cloud security — IAM, threat detection, network hardening</div>
+      <h1>I investigate what happens inside cloud environments, then document it properly.</h1>
+      <p class="lede">Cybersecurity diploma (AltSchool Africa) plus hands-on work across AWS, Azure, and the ELK stack. Every project below is written up the way a real investigation report would be — not a resume bullet.</p>
+      <p style="color:var(--ink-soft); font-size:0.95rem;">Based in California · Open to cloud security / SOC analyst roles</p>
+    </div>
+    <div>
+      <div class="log-panel">
+<span class="tag">$ Get-MgUserMemberOf</span> -UserId "diego.siciliani@contoso.com"
+
+<span class="flag">⚠ High-risk sign-in: Browser · Android · US · IP 131.107.1.10</span>
+Evaluating Conditional Access policies via What If...
+Policy1: applies (Require MFA)
+Policy4 (All users): applies
+Result: access allowed with MFA challenge
+      </div>
+      <div class="caption">Excerpt from the Entra Conditional Access investigation — case 001, below.</div>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+  <div class="section-label" id="cases">Case files</div>
+  <div class="case-list">
+
+    <a class="case" href="projects/entra-identity-access-management.html">
+      <div class="case-no">001</div>
+      <div>
+        <h2 class="case-title">Managing identity and access in Microsoft Entra: users, groups, roles, and Conditional Access</h2>
+        <p class="case-summary">A full IAM administration cycle in a live Entra tenant — user/license onboarding, role-assignable groups, SSPR and password-protection auditing, and a Conditional Access What If analysis — completed while earning a Microsoft Applied Skills credential.</p>
+        <div class="case-tags">
+          <span class="tag-pill">Microsoft Entra ID</span>
+          <span class="tag-pill">IAM</span>
+          <span class="tag-pill">Conditional Access</span>
+        </div>
+      </div>
+      <div class="status resolved">RESOLVED</div>
+    </a>
+
+    <a class="case" href="#" aria-disabled="true" onclick="return false;" style="opacity:0.55; cursor:default;">
+      <div class="case-no">002</div>
+      <div>
+        <h2 class="case-title">Building a File Integrity Monitoring dashboard in the ELK stack</h2>
+        <p class="case-summary">Elasticsearch, Logstash, and Kibana set up to catch unauthorized file changes in near real time, with a custom security dashboard.</p>
+        <div class="case-tags">
+          <span class="tag-pill">ELK Stack</span>
+          <span class="tag-pill">SIEM</span>
+          <span class="tag-pill">FIM</span>
+        </div>
+      </div>
+      <div class="status open">WRITE-UP PENDING</div>
+    </a>
+
+    <a class="case" href="#" aria-disabled="true" onclick="return false;" style="opacity:0.55; cursor:default;">
+      <div class="case-no">003</div>
+      <div>
+        <h2 class="case-title">Watching credentials leak in cleartext, then fixing it with TLS</h2>
+        <p class="case-summary">Intercepting credentials over an unsecured Apache server with Wireshark, then configuring SSL/TLS and confirming the traffic is no longer readable.</p>
+        <div class="case-tags">
+          <span class="tag-pill">SSL/TLS</span>
+          <span class="tag-pill">Wireshark</span>
+          <span class="tag-pill">Apache</span>
+        </div>
+      </div>
+      <div class="status open">WRITE-UP PENDING</div>
+    </a>
+
+    <a class="case" href="#" aria-disabled="true" onclick="return false;" style="opacity:0.55; cursor:default;">
+      <div class="case-no">004</div>
+      <div>
+        <h2 class="case-title">Breaking access control: a SQLi and IDOR walkthrough</h2>
+        <p class="case-summary">A CTF-style exercise exploiting SQL injection and insecure direct object references to bypass both horizontal and vertical access controls.</p>
+        <div class="case-tags">
+          <span class="tag-pill">SQL Injection</span>
+          <span class="tag-pill">IDOR</span>
+          <span class="tag-pill">Access control</span>
+        </div>
+      </div>
+      <div class="status open">WRITE-UP PENDING</div>
+    </a>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · Cloud Security · <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a> · <a href="https://github.com/" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>
