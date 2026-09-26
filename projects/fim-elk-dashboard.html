@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case 003 — Building a File Integrity Monitoring dashboard in the ELK stack | Lawrence Mbah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="../index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="../index.html#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+    </nav>
+  </div>
+</header>
+
+<div class="file-header">
+  <div class="wrap">
+    <a class="back" href="../index.html#cases">&larr; All case files</a>
+    <div class="file-meta">
+      <span>CASE 003</span>
+      <span class="status resolved" style="display:inline-block;">RESOLVED</span>
+      <span>ENV: ELK Stack (Elasticsearch, Kibana, Filebeat, auditd)</span>
+    </div>
+    <h1>Building a File Integrity Monitoring dashboard in the ELK stack</h1>
+    <p style="max-width:60ch; color:var(--ink-soft);">A full FIM pipeline built from scratch on a local Ubuntu server: auditd watching a directory, Filebeat shipping parsed events into Elasticsearch, and a Kibana dashboard showing real create, edit, and delete activity in near real time — built directly on top of the infrastructure recovered in <a href="linux-vm-incident-recovery.html">Case 002</a>.</p>
+    <div class="stack">
+      <span class="tag-pill">ELK Stack</span>
+      <span class="tag-pill">Elasticsearch</span>
+      <span class="tag-pill">Filebeat</span>
+      <span class="tag-pill">auditd</span>
+      <span class="tag-pill">FIM</span>
+    </div>
+  </div>
+</div>
+
+<article class="wrap">
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#environment">Environment</a>
+    <a href="#watch-rule">Watching the folder</a>
+    <a href="#elk-stack">Standing up the ELK stack</a>
+    <a href="#shipping">Shipping events with Filebeat</a>
+    <a href="#dashboard">Building the dashboard</a>
+    <a href="#lessons">Lessons learned</a>
+  </nav>
+
+  <div class="case-body">
+
+    <h2 id="summary">Summary</h2>
+    <p>This case documents building a working File Integrity Monitoring (FIM) pipeline end to end: a Linux audit rule watching a specific folder for writes and attribute changes, a shipping layer parsing and forwarding those events, and a visualization layer turning raw audit log lines into a queryable, near-real-time dashboard. The finished dashboard distinguishes between different real file actions — creating a file, editing one in a text editor, and deleting one — rather than just showing an undifferentiated event count.</p>
+
+    <h2 id="environment">Environment</h2>
+    <ul>
+      <li>Ubuntu Server VM (the same environment recovered in <a href="linux-vm-incident-recovery.html">Case 002</a>), running locally in VirtualBox</li>
+      <li>auditd for kernel-level file watch rules</li>
+      <li>Elasticsearch 8.x and Kibana for storage, indexing, and visualization</li>
+      <li>Filebeat with the auditd module enabled, to parse and ship audit log events</li>
+    </ul>
+
+    <h2 id="watch-rule">Watching the folder</h2>
+    <p>The first step was a kernel-level audit rule watching a specific directory for writes and attribute changes, tagged with a custom key so its events are easy to isolate later:</p>
+    <pre>sudo auditctl -w /home/vboxuser/watched-folder -p wa -k fim_watch
+sudo touch /home/vboxuser/watched-folder/test1.txt
+sudo ausearch -k fim_watch</pre>
+    <p>The resulting audit record confirmed the rule was catching real activity at the kernel level before any of the ELK tooling was even involved — a file creation (<code>nametype=CREATE</code>) on the exact watched path, tagged with the <code>fim_watch</code> key:</p>
+    <figure>
+      <img src="screenshots/fim-ausearch-detection.png" alt="Terminal showing the auditctl watch rule and ausearch output confirming a file creation event tagged fim_watch">
+      <figcaption>Confirming the watch rule works at the source, before anything is shipped anywhere.</figcaption>
+    </figure>
+
+    <h2 id="elk-stack">Standing up the ELK stack</h2>
+    <p>With Elasticsearch and Kibana already recovered and stabilized in Case 002, both services were confirmed healthy before layering the FIM pipeline on top:</p>
+    <figure>
+      <img src="screenshots/elasticsearch-status.png" alt="systemctl status elasticsearch showing active and running">
+      <figcaption>Elasticsearch running and healthy.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/kibana-status.png" alt="systemctl status kibana showing active and running">
+      <figcaption>Kibana running and healthy.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/elastic-welcome-home.png" alt="Kibana's Welcome home screen">
+      <figcaption>Kibana's home screen, confirming the stack is reachable and ready for data.</figcaption>
+    </figure>
+
+    <h2 id="shipping">Shipping events with Filebeat</h2>
+    <p>Filebeat, with its built-in <code>auditd</code> module, is responsible for reading audit log entries and shipping them into Elasticsearch in a structured, queryable form:</p>
+    <pre>sudo apt install filebeat -y
+sudo filebeat modules enable auditd
+sudo systemctl enable filebeat && sudo systemctl start filebeat</pre>
+    <figure>
+      <img src="screenshots/filebeat-status.png" alt="systemctl status filebeat showing active and running">
+      <figcaption>Filebeat running, actively shipping logs.</figcaption>
+    </figure>
+    <div class="callout"><strong>A real bug worth flagging:</strong> enabling the <code>auditd</code> module was not enough on its own. Filebeat's logs showed a specific, easy-to-miss error — <code>"module auditd is configured but has no enabled filesets"</code> — meaning the module was recognized but its actual <code>log</code> fileset was still disabled underneath it. The fix required explicitly setting <code>enabled: true</code> inside <code>/etc/filebeat/modules.d/auditd.yml</code>, restarting Filebeat, and only then did real file events start reaching Elasticsearch. Before this fix, only unrelated configuration-change events were visible — everything looked connected, but the actual file-activity data was silently never leaving the source.</div>
+    <p>Once fixed, individual events could be confirmed directly in Kibana's Discover view, tagged correctly with the <code>fim_watch</code> key:</p>
+    <figure>
+      <img src="screenshots/fim-event-in-discover.png" alt="Kibana Discover view showing an expanded audit event with auditd.log.key set to fim_watch">
+      <figcaption>A single FIM event, fully parsed and searchable in Elasticsearch.</figcaption>
+    </figure>
+
+    <h2 id="dashboard">Building the dashboard</h2>
+    <p>The finished dashboard combines a time-based trend of file activity with a detailed event table, so it answers both "when did activity spike" and "what exactly happened." To make the table meaningful, it needed to distinguish between different real actions rather than lump everything into one count — so the test activity included creating a file (<code>touch</code>), editing one (<code>nano</code>), and removing one (<code>rm</code>):</p>
+    <figure>
+      <img src="screenshots/fim-dashboard-final.png" alt="Finished Kibana dashboard: a bar chart of file event counts over time alongside a table showing timestamp, process name (nano, touch, rm), and syscall for each event">
+      <figcaption>The finished dashboard — 77 documents captured, with the event table clearly distinguishing touch, nano, and rm actions by timestamp and syscall.</figcaption>
+    </figure>
+    <p>The table panel resolves each event down to its process name and syscall, meaning a reviewer can see not just that something changed, but specifically how — a file was created with <code>touch</code>, modified with <code>nano</code>, or removed with <code>rm</code> — which is the actual point of file integrity monitoring: distinguishing ordinary activity from something that warrants a closer look.</p>
+
+    <h2 id="lessons">Lessons learned</h2>
+    <p>The biggest lesson from this project wasn't about auditd, Filebeat, or Kibana individually — it was that a pipeline can look fully connected at every stage (every service reporting "active, running") while still silently dropping the one thing it's supposed to be doing, because of a setting one layer deeper than where the obvious status check looks. Enabling a module is not the same as enabling what's inside it. The fix was straightforward once found, but finding it required checking the actual source data (<code>ausearch</code>) against what was landing in Elasticsearch, rather than trusting that a "running" status meant "working correctly."</p>
+
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · <a href="../index.html#cases">Back to case files</a>
+  </div>
+</footer>
+
+</body>
+</html>
