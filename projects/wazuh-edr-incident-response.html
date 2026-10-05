@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case 004 — Wazuh EDR & Automated Incident Response | Lawrence Mbah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="../index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="../index.html#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+    </nav>
+  </div>
+</header>
+
+<div class="file-header">
+  <div class="wrap">
+    <a class="back" href="../index.html#cases">&larr; All case files</a>
+    <div class="file-meta">
+      <span>CASE 004</span>
+      <span class="status resolved" style="display:inline-block;">RESOLVED</span>
+      <span>ENV: Wazuh (Linux manager) + Windows 11 endpoint</span>
+    </div>
+    <h1>Wazuh EDR & automated incident response: detecting and isolating a simulated attack</h1>
+    <p style="max-width:60ch; color:var(--ink-soft);">Standing up a real EDR pipeline — agent telemetry, a MITRE ATT&CK-mapped simulated attack, detection in the SIEM, and an automated active response that isolates the compromised host without a human clicking anything.</p>
+    <div class="stack">
+      <span class="tag-pill">Wazuh</span>
+      <span class="tag-pill">EDR</span>
+      <span class="tag-pill">Sysmon</span>
+      <span class="tag-pill">MITRE ATT&CK</span>
+      <span class="tag-pill">Active Response</span>
+    </div>
+  </div>
+</div>
+
+<article class="wrap">
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#environment">Environment</a>
+    <a href="#phase1">Phase 1: Setup</a>
+    <a href="#phase2">Phase 2: Simulation</a>
+    <a href="#phase3">Phase 3: Detection</a>
+    <a href="#phase4">Phase 4: Active response</a>
+    <a href="#lessons">Lessons learned</a>
+  </nav>
+
+  <div class="case-body">
+
+    <h2 id="summary">Summary</h2>
+    <p>I built a small, self-contained EDR lab to answer a specific question: if a Windows endpoint I'm responsible for gets compromised, does my monitoring actually catch it — and can the response happen automatically, before I even look at a dashboard? I deployed a Wazuh agent with Sysmon telemetry on a Windows 11 VM, simulated two real MITRE ATT&CK techniques against it using nothing but PowerShell (no external attacker tooling), confirmed both were detected and correctly mapped to their techniques in Wazuh's Threat Hunting view, and then configured an Active Response rule on the Wazuh manager that automatically isolates the endpoint via <code>netsh</code> the moment a high-severity alert fires. The isolation triggered for real — not in a test — against a DLL Search Order Hijack detection that came up during the exercise.</p>
+
+    <h2 id="environment">Lab architecture and stack</h2>
+    <ul>
+      <li><strong>Wazuh Manager</strong> — pre-built OVA appliance, Linux, <code>172.20.10.4</code></li>
+      <li><strong>Windows 11 Enterprise endpoint</strong> — hostname "Lawrence," running the Wazuh Agent</li>
+      <li><strong>Sysmon</strong> — installed on the Windows endpoint to generate detailed process and registry telemetry, forwarded to Wazuh through the agent</li>
+      <li><strong>Simulation framework</strong> — Atomic Red Team-style technique execution, mapped to MITRE ATT&CK, run as plain PowerShell (no third-party attack framework needed to prove detection)</li>
+    </ul>
+
+    <h2 id="phase1">Phase 1: Environment setup and agent verification</h2>
+    <p>Before trusting any detection results, I confirmed the full telemetry pipeline was actually live end to end: the Wazuh agent registered and reporting healthy, and Sysmon running and generating events underneath it. Both services needed to show <strong>Running</strong> independently — a registered-but-not-reporting agent, or a healthy agent with a dead Sysmon service underneath it, would have made every later detection meaningless.</p>
+    <figure>
+      <img src="screenshots/01-Wazuh-Sysmon-Onboarding" alt="Wazuh agent dashboard showing the Windows endpoint connected and healthy, with Sysmon64 and WazuhSvc services both in a Running state">
+      <figcaption>The Windows endpoint's Wazuh agent registered and reporting Active, with Sysmon64 and WazuhSvc both confirmed Running.</figcaption>
+    </figure>
+
+    <h2 id="phase2">Phase 2: Threat simulation execution</h2>
+    <p>I simulated two distinct MITRE ATT&CK techniques directly from an elevated PowerShell session on the endpoint — deliberately using only native Windows tooling, to mirror how a real "living off the land" intrusion looks to a defender rather than something only a dedicated red-team tool would trigger.</p>
+    <p><strong>T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys</strong> (persistence):</p>
+    <pre>New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
+  -Name "AtomicTest" -Value "calc.exe" -PropertyType String -Force</pre>
+    <p><strong>T1057 — Process Discovery</strong> (reconnaissance against a sensitive process):</p>
+    <pre>Get-Process -Name "lsass" | Select-Object Id, ProcessName, Path</pre>
+    <figure>
+      <img src="screenshots/02-Atomic-Execution" alt="PowerShell terminal output showing the registry persistence key being created and the lsass process query returning results">
+      <figcaption>Both techniques executed from PowerShell: a registry Run key written for persistence, then a direct query against the lsass process.</figcaption>
+    </figure>
+
+    <h2 id="phase3">Phase 3: Detection and telemetry analysis</h2>
+    <p>Both actions needed to show up as real, attributable detections — not just raw log noise — to count as a working pipeline. In Wazuh's Threat Hunting dashboard, the activity generated 128 hits across multiple correlated detection rules, correctly correlated back to the technique that triggered them rather than appearing as unrelated, disconnected log lines.</p>
+    <figure>
+      <img src="screenshots/03-Wazuh-Detection-Alert.png" alt="Wazuh Threat Hunting dashboard showing 128 hits across multiple detection rules tied to the simulated activity">
+      <figcaption>Wazuh's Threat Hunting view showing the simulated activity surfaced as correlated detections, not just raw events.</figcaption>
+    </figure>
+    <p>I then dropped into the raw Sysmon telemetry behind one of the alerts to confirm the underlying data was as rich as the summary view implied — full process lineage, command line, and parent-process context, not a stripped-down summary:</p>
+    <figure>
+      <img src="screenshots/04-Json-Log-Analysis.png" alt="Expanded raw JSON Sysmon event in Wazuh showing full process and command-line detail behind a detection alert">
+      <figcaption>The expanded raw JSON behind a detection — full Sysmon process telemetry, not a summarized alert.</figcaption>
+    </figure>
+
+    <h2 id="phase4">Phase 4: Automated active response and host isolation</h2>
+    <p>Detecting an incident is only half the job; the part that actually matters at 3am is whether containment happens without a human in the loop. I configured a custom Active Response block directly on the Wazuh manager's <code>ossec.conf</code>, tying a <code>netsh</code>-based isolation script to any alert at severity level 6 or above:</p>
+    <pre>&lt;command&gt;
+  &lt;name&gt;isolate-host&lt;/name&gt;
+  &lt;executable&gt;isolate-host.cmd&lt;/executable&gt;
+  &lt;timeout_allowed&gt;yes&lt;/timeout_allowed&gt;
+&lt;/command&gt;
+
+&lt;active-response&gt;
+  &lt;command&gt;isolate-host&lt;/command&gt;
+  &lt;location&gt;local&lt;/location&gt;
+  &lt;rules_id&gt;100100&lt;/rules_id&gt;
+  &lt;level&gt;6&lt;/level&gt;
+&lt;/active-response&gt;</pre>
+    <pre>sudo systemctl restart wazuh-manager</pre>
+    <p>This didn't just pass in an isolated test — it fired for real partway through the exercise. A separate detection for DLL Search Order Hijack (T1574.001 / T1574.002) crossed the severity threshold and triggered the configured response automatically, confirmed on the Windows endpoint's own <code>active-responses.log</code>:</p>
+    <figure>
+      <img src="screenshots/05-Active-Response-Config.png" alt="ossec.conf active response XML configuration open in a text editor on the Wazuh manager, alongside the wazuh-manager restart command">
+      <figcaption>The Active Response configuration added to the Wazuh manager's ossec.conf, before the restart that activated it.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/06-Active-Response-Isolation.png" alt="Windows active-responses.log confirming the netsh-based isolation command executed automatically following a DLL Search Order Hijack detection">
+      <figcaption>active-responses.log on the Windows endpoint, confirming the isolation command executed automatically after a real DLL Search Order Hijack detection — not a manual test run.</figcaption>
+    </figure>
+    <div class="callout"><strong>Why this matters:</strong> most home-lab EDR projects stop at "I saw an alert in a dashboard." The useful version of this skill is closing the loop — a detection that leads to an automatic, pre-approved containment action, which is what SOAR/active-response tooling is for in a real SOC.</div>
+
+    <h2 id="lessons">Lessons learned</h2>
+    <p>Mapping simulated activity to specific MITRE ATT&CK technique IDs (T1547.001, T1057, T1574.001/.002) rather than just "ran some suspicious commands" made the detections far easier to validate and write up — I knew exactly what each alert should correspond to before I went looking for it. The active response piece was the most valuable part of the project precisely because it wasn't scripted to succeed: it triggered against a detection I hadn't specifically engineered for, which is a much more honest test of whether the pipeline works than running it against the exact scenario it was built for. The main technical takeaway carried over from this project is that EDR is only as good as the telemetry underneath it — the Sysmon configuration and agent health check in Phase 1 mattered as much to the outcome as the detection rules or the response logic did.</p>
+
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · <a href="../index.html#cases">Back to case files</a>
+  </div>
+</footer>
+
+</body>
+</html>
