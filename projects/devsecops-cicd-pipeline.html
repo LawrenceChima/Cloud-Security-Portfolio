@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case 005 — Automated Security Scanning in a CI/CD Pipeline | Lawrence Mbah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="../index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="../index.html#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+    </nav>
+  </div>
+</header>
+
+<div class="file-header">
+  <div class="wrap">
+    <a class="back" href="../index.html#cases">&larr; All case files</a>
+    <div class="file-meta">
+      <span>CASE 005</span>
+      <span class="status resolved" style="display:inline-block;">RESOLVED</span>
+      <span>ENV: GitHub Actions (CI/CD)</span>
+    </div>
+    <h1>DevSecOps: wiring automated security scanning into a CI/CD pipeline</h1>
+    <p style="max-width:60ch; color:var(--ink-soft);">Moving security checks from a manual, after-the-fact review into the pipeline itself — secret scanning, dependency auditing, static code analysis, and container scanning, all running automatically on every push, plus a live test of whether the secret detection actually works.</p>
+    <div class="stack">
+      <span class="tag-pill">DevSecOps</span>
+      <span class="tag-pill">GitHub Actions</span>
+      <span class="tag-pill">Gitleaks</span>
+      <span class="tag-pill">Dependabot</span>
+      <span class="tag-pill">Semgrep</span>
+      <span class="tag-pill">Trivy</span>
+    </div>
+  </div>
+</div>
+
+<article class="wrap">
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#environment">Environment</a>
+    <a href="#phase1">Phase 1: Target repo</a>
+    <a href="#phase2">Phase 2: Dependabot</a>
+    <a href="#phase3">Phase 3: Pipeline</a>
+    <a href="#phase4">Phase 4: Testing secret detection</a>
+    <a href="#lessons">Lessons learned</a>
+  </nav>
+
+  <div class="case-body">
+
+    <h2 id="summary">Summary</h2>
+    <p>Most of my earlier projects are about catching and responding to something after it's already running — a live endpoint, a live log stream. This one moves the check earlier: into the software development pipeline itself, before code ever reaches production. I took a real, publicly available Node.js application, wired four separate automated security scans into its GitHub Actions pipeline, and then deliberately tried to push a fake credential through it to see whether detection actually works end to end — not just whether the pipeline runs green.</p>
+
+    <h2 id="environment">Environment and stack</h2>
+    <ul>
+      <li><strong>Target application:</strong> OWASP Juice Shop (a real, actively maintained Node.js app, forked into my own GitHub account)</li>
+      <li><strong>CI/CD platform:</strong> GitHub Actions (free tier)</li>
+      <li><strong>Secret scanning:</strong> Gitleaks (in-pipeline) + GitHub's native Push Protection (at commit time)</li>
+      <li><strong>Dependency scanning:</strong> GitHub Dependabot (alerts + automatic security update PRs)</li>
+      <li><strong>Static code analysis (SAST):</strong> Semgrep, using the OWASP Top 10 ruleset</li>
+      <li><strong>Container image scanning:</strong> Trivy, scanning the app's own Dockerfile-built image</li>
+    </ul>
+
+    <h2 id="phase1">Phase 1: Getting a real target into my own repo</h2>
+    <p>Rather than write a toy app with no real history, I forked OWASP Juice Shop — a project deliberately built with realistic vulnerabilities for security testing, with years of genuine commit history and genuine third-party dependencies. That matters: a brand-new empty repo would give every scanner nothing to find. A mature, real codebase gives the pipeline something honest to chew on.</p>
+    <figure>
+      <img src="screenshots/devsecops-forked-repo.png" alt="GitHub repository page showing juice-shop forked into the user's own account, with full commit history intact">
+      <figcaption>OWASP Juice Shop forked into my own GitHub account — full commit history and dependency tree intact.</figcaption>
+    </figure>
+
+    <h2 id="phase2">Phase 2: Dependency vulnerability scanning with Dependabot</h2>
+    <p>Before touching the pipeline itself, I enabled GitHub's built-in Dependabot alerts and automatic security update PRs under the repo's Code security settings. This runs independently of anything in the Actions workflow — GitHub scans the dependency manifest directly against its own vulnerability database.</p>
+    <figure>
+      <img src="screenshots/devsecops-dependabot-enabled.png" alt="GitHub Code security settings showing Dependabot alerts and Dependabot security updates both switched on">
+      <figcaption>Dependabot alerts and automatic security updates enabled in Code security settings.</figcaption>
+    </figure>
+    <p>It didn't take long to produce results. 29 open vulnerabilities were found in Juice Shop's direct dependencies, including a <strong>Critical</strong>-severity Verification Bypass in <code>jsonwebtoken</code> and several High-severity Denial of Service issues in <code>multer</code> — the kind of finding that, in a real engineering org, would block a release until patched or explicitly accepted.</p>
+    <figure>
+      <img src="screenshots/devsecops-dependabot-alerts.png" alt="GitHub Dependabot alerts page listing 29 open vulnerabilities including a Critical jsonwebtoken verification bypass and multiple High severity multer denial of service issues">
+      <figcaption>29 open Dependabot alerts, including a Critical jsonwebtoken verification bypass flagged on a direct dependency.</figcaption>
+    </figure>
+
+    <h2 id="phase3">Phase 3: Building the pipeline</h2>
+    <p>I added a GitHub Actions workflow defining four parallel jobs — <code>secret-scan</code> (Gitleaks), <code>dependency-scan</code> (npm audit), <code>sast-scan</code> (Semgrep against the OWASP Top 10 ruleset), and <code>container-scan</code> (Trivy against the built Docker image) — all triggered automatically on every push.</p>
+    <p>The very first run immediately surfaced two real, unplanned findings rather than a clean pass, which is exactly what a working pipeline against real code should do:</p>
+    <ul>
+      <li>Gitleaks, scanning the <em>full</em> git history (not just the current commit), flagged 208 historical matches — including a generic API key pattern committed to <code>.travis.yml</code> back in 2014 by the project's original maintainer. Not a secret I planted — one already sitting in the public commit history of a widely-used open source project.</li>
+      <li>npm audit surfaced real, currently-unpatched high-severity advisories in the dependency tree, including a shell injection vulnerability in <code>@cyclonedx/cyclonedx-npm</code> via unsanitized workspace arguments.</li>
+    </ul>
+    <figure>
+      <img src="screenshots/devsecops-secret-scan-log.png" alt="Gitleaks job log showing 208 leaks found across the full commit history, including a generic API key committed to .travis.yml in 2014">
+      <figcaption>Gitleaks scanning full commit history (not just the latest commit) — flagging a real historical secret from the project's own past, years before I forked it.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/devsecops-dependency-scan-log.png" alt="npm audit output in the dependency-scan job showing a high severity shell injection advisory in cyclonedx-npm">
+      <figcaption>npm audit catching a real, currently open high-severity shell injection advisory in a direct dependency.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/devsecops-pipeline-run.png" alt="GitHub Actions run summary showing the four security jobs — secret-scan, dependency-scan, sast-scan, container-scan — with their pass/fail status">
+      <figcaption>The full pipeline run: four independent security jobs executing automatically on every push, each reporting its own result.</figcaption>
+    </figure>
+    <div class="callout"><strong>Why a red X across several jobs is the right outcome here:</strong> the goal of this pipeline isn't a clean checkmark — it's catching real issues before they ship. A security pipeline that always passes against a codebase with 29 known CVEs in its dependencies isn't working; it's just not looking hard enough.</div>
+
+    <h2 id="phase4">Phase 4: Does secret detection actually work?</h2>
+    <p>A pipeline that's never been tested against an actual secret is an assumption, not a verified control. To check, I deliberately committed a fake-but-realistic-looking AWS access key and secret to a test file and tried to push it.</p>
+    <p>The first attempt used the AWS documentation's well-known placeholder key (<code>AKIAIOSFODNN7EXAMPLE</code>) — which passed cleanly. That's not a gap: Gitleaks' default ruleset specifically allowlists that exact string, since it's the official example key reproduced in thousands of tutorials, and flagging it on every repo that's ever referenced AWS docs would just be noise. It was a useful reminder that secret scanners are tuned against known-safe placeholders, so testing detection properly means using a value that isn't one.</p>
+    <p>With a non-placeholder fake key, GitHub's own <strong>Push Protection</strong> — a separate, native layer that sits in front of the repository itself — intercepted the push before the commit ever reached the repo:</p>
+    <figure>
+      <img src="screenshots/devsecops-push-protection.png" alt="GitHub push protection dialog blocking a commit, identifying it as an Amazon AWS Secret Access Key and offering to allow it as a test secret, flag it as a false positive, or acknowledge the real risk">
+      <figcaption>GitHub's native Push Protection blocking the commit at push time — before the secret ever entered the repository's history.</figcaption>
+    </figure>
+    <p>This is a stronger result than the original plan of catching it inside the CI log after the fact: the secret never made it into version control at all, which is the better outcome of the two. It also means the detection stack has two independent layers — Push Protection at commit time, and Gitleaks re-scanning the full history inside CI as a second check, the way it caught the real 2014 key in Phase 3.</p>
+
+    <h2 id="lessons">Lessons learned</h2>
+    <p>The most useful finding of this project wasn't any single vulnerability — it was confirming that "the pipeline is green" and "the code is secure" are two different claims, and conflating them is a real risk. Real security pipelines against real codebases should surface real findings, not pass silently; a pipeline I'd built from an empty repo with no history and no dependencies would have told me nothing. Testing the secret scanner against a known placeholder also taught me that detection tooling is tuned to avoid specific false positives, which means verifying a control actually works requires testing it with something the tool hasn't already been told to ignore — a blind spot I would have missed if I'd stopped at the first "all clear."</p>
+
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · <a href="../index.html#cases">Back to case files</a>
+  </div>
+</footer>
+
+</body>
+</html>
