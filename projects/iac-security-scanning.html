@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case 006 — Infrastructure-as-Code Security Scanning | Lawrence Mbah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="../index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="../index.html#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+    </nav>
+  </div>
+</header>
+
+<div class="file-header">
+  <div class="wrap">
+    <a class="back" href="../index.html#cases">&larr; All case files</a>
+    <div class="file-meta">
+      <span>CASE 006</span>
+      <span class="status resolved" style="display:inline-block;">RESOLVED</span>
+      <span>ENV: Terraform + GitHub Actions</span>
+    </div>
+    <h1>Infrastructure-as-Code security: catching cloud misconfigurations before they're ever deployed</h1>
+    <p style="max-width:60ch; color:var(--ink-soft);">Scanning the blueprint for cloud infrastructure — before a single resource is created — to catch the kind of misconfiguration (an open S3 bucket, a security group open to the internet) that causes most real-world cloud breaches.</p>
+    <div class="stack">
+      <span class="tag-pill">Terraform</span>
+      <span class="tag-pill">Checkov</span>
+      <span class="tag-pill">CSPM</span>
+      <span class="tag-pill">GitHub Actions</span>
+    </div>
+  </div>
+</div>
+
+<article class="wrap">
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#environment">Environment</a>
+    <a href="#phase1">Phase 1: Writing the infrastructure</a>
+    <a href="#phase2">Phase 2: Scanning it</a>
+    <a href="#phase3">Phase 3: Triage and fix</a>
+    <a href="#lessons">Lessons learned</a>
+  </nav>
+
+  <div class="case-body">
+
+    <h2 id="summary">Summary</h2>
+    <p>Case 005 was about catching problems in application code. This one moves a step earlier — into the infrastructure itself, before anything is deployed. Most real cloud breaches don't come from a clever exploit; they come from a plain misconfiguration (a storage bucket left public, a security group open to the entire internet) that got written into the infrastructure definition and never caught. This project writes exactly that kind of mistake into a small Terraform configuration on purpose, scans it automatically, and then triages and fixes what the scanner finds — the way a cloud security engineer would review a pull request before it's allowed to merge.</p>
+
+    <h2 id="environment">Environment and stack</h2>
+    <ul>
+      <li><strong>Infrastructure-as-Code:</strong> Terraform (AWS provider) — written and scanned, never actually deployed, so no AWS account or cost was needed</li>
+      <li><strong>Scanner:</strong> Checkov (Bridgecrew / Palo Alto), covering AWS's own published misconfiguration policies</li>
+      <li><strong>Automation:</strong> GitHub Actions, scanning automatically on every push</li>
+    </ul>
+
+    <h2 id="phase1">Phase 1: Writing a realistic, deliberately flawed configuration</h2>
+    <p>I wrote a small Terraform file defining two resources with mistakes that are common in real environments: an S3 bucket with a public-read ACL, and a security group allowing inbound SSH (port 22) from <code>0.0.0.0/0</code> — the entire internet, not a specific network.</p>
+    <figure>
+      <img src="screenshots/iac-repo-committed.png" alt="GitHub repository page showing main.tf committed to the terraform-security-lab repo">
+      <figcaption>The Terraform configuration committed to its own repo — written to be scanned, never deployed.</figcaption>
+    </figure>
+
+    <h2 id="phase2">Phase 2: Automated scanning on every push</h2>
+    <p>I wired Checkov into a GitHub Actions workflow so it runs automatically against the Terraform files on every push, the same shift-left pattern as Case 005's application pipeline, applied here to infrastructure instead of code.</p>
+    <p>The first scan returned far more than the two issues I'd deliberately planted — <strong>10 failed checks</strong> across both resources. A minimal, unconfigured resource fails every "did you explicitly turn this on" check by default: missing encryption, missing versioning, missing access logging, missing a public access block, and more, on top of the public ACL and open SSH rule.</p>
+    <figure>
+      <img src="screenshots/iac-checkov-failed.png" alt="Checkov scan log showing multiple FAILED checks including an open SSH security group and an S3 bucket with a public-read ACL, missing versioning, and missing encryption">
+      <figcaption>The first Checkov run — 10 failed checks, including the two deliberately planted issues plus eight more that a bare-minimum resource definition fails by default.</figcaption>
+    </figure>
+
+    <h2 id="phase3">Phase 3: Triage, fix, and re-scan</h2>
+    <p>Not every failed check carries equal weight, and treating all 10 as equally urgent would have missed the point of the exercise. I triaged them the way a real review would: fixed the issues with direct, serious security impact, and explicitly accepted the lower-priority ones for this lab context rather than configuring every setting Checkov could possibly check for.</p>
+    <p><strong>Fixed:</strong></p>
+    <ul>
+      <li>Removed the public-read ACL and added an explicit <code>aws_s3_bucket_public_access_block</code> resource, blocking public access at the account/bucket level rather than relying on the ACL alone</li>
+      <li>Enabled versioning on the S3 bucket, so accidental deletion or overwrite is recoverable</li>
+      <li>Enabled default server-side encryption (KMS) on the bucket</li>
+      <li>Restricted the security group's SSH rule from <code>0.0.0.0/0</code> to a specific network range, rather than the entire internet</li>
+    </ul>
+    <p><strong>Accepted as lower priority for this lab:</strong> access logging, cross-region replication, lifecycle rules, and event notifications — these matter in a production environment with real data and compliance requirements, but don't carry the same risk as a publicly writable bucket or an internet-facing SSH port on a resource with no real data behind it.</p>
+    <figure>
+      <img src="screenshots/iac-checkov-passed.png" alt="Checkov scan log after the fix, showing the previously failed checks now PASSED, including the open SSH check and the public ACL check">
+      <figcaption>The re-scan after fixing: the SSH exposure, public ACL, missing versioning, and missing encryption checks all now show PASSED.</figcaption>
+    </figure>
+
+    <h2 id="lessons">Lessons learned</h2>
+    <p>The volume of findings on a nearly-empty Terraform file was the most useful part of this project to internalize: cloud resources are insecure by default until explicitly configured otherwise, and a scanner doing its job will reflect that honestly rather than only flagging the "obvious" mistakes. Getting from 10 failed checks to a clean, deliberately-triaged result is a more realistic picture of real cloud security work than fixing a single planted bug — most of the job is deciding what's actually worth fixing now versus what's an acceptable risk for the context, and being able to say why.</p>
+
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · <a href="../index.html#cases">Back to case files</a>
+  </div>
+</footer>
+
+</body>
+</html>
