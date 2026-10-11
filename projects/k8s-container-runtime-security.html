@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case 007 — Kubernetes & Container Runtime Security | Lawrence Mbah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="../index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="../index.html#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+    </nav>
+  </div>
+</header>
+
+<div class="file-header">
+  <div class="wrap">
+    <a class="back" href="../index.html#cases">&larr; All case files</a>
+    <div class="file-meta">
+      <span>CASE 007</span>
+      <span class="status resolved" style="display:inline-block;">RESOLVED</span>
+      <span>ENV: kind (Kubernetes), Trivy, kube-bench, Falco</span>
+    </div>
+    <h1>Kubernetes &amp; container runtime security: scanning before deploy, catching an attack after</h1>
+    <p style="max-width:60ch; color:var(--ink-soft);">A local Kubernetes cluster, scanned for vulnerabilities and misconfigurations before anything runs, audited against the CIS Kubernetes Benchmark, then attacked on purpose — and caught, live, by a runtime security tool watching what's actually happening inside the container.</p>
+    <div class="stack">
+      <span class="tag-pill">Kubernetes</span>
+      <span class="tag-pill">Trivy</span>
+      <span class="tag-pill">kube-bench</span>
+      <span class="tag-pill">Falco</span>
+      <span class="tag-pill">Container Security</span>
+    </div>
+  </div>
+</div>
+
+<article class="wrap">
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#environment">Environment</a>
+    <a href="#phase1">Phase 1: Standing up the cluster</a>
+    <a href="#phase2">Phase 2: Scanning before anything runs</a>
+    <a href="#phase3">Phase 3: Auditing the cluster itself</a>
+    <a href="#phase4">Phase 4: Catching a live attack</a>
+    <a href="#lessons">Lessons learned</a>
+  </nav>
+
+  <div class="case-body">
+
+    <h2 id="summary">Summary</h2>
+    <p>Every case file so far has secured a different layer — identity (Case 001), the host (Case 002), file activity (Case 003), the endpoint (Case 004), the application pipeline (Case 005), and the infrastructure blueprint (Case 006). This one moves to where most companies are actually running their workloads now: containers, orchestrated by Kubernetes. It follows the same shift-left logic as Cases 005 and 006 — scan the image and the deployment config before anything runs — then goes a step further most of those projects didn't: it deliberately attacks the running container afterward, to prove that if a misconfiguration does slip through, something is actually watching at runtime to catch it.</p>
+
+    <h2 id="environment">Environment and stack</h2>
+    <ul>
+      <li><strong>Cluster:</strong> kind (Kubernetes IN Docker) — a lightweight local Kubernetes cluster, chosen over minikube for its smaller resource footprint</li>
+      <li><strong>Image &amp; config scanning:</strong> Trivy — scans both the container image for known CVEs and the Kubernetes YAML for misconfigurations</li>
+      <li><strong>Cluster hardening audit:</strong> kube-bench — checks the cluster against the CIS Kubernetes Benchmark, the industry-standard security checklist</li>
+      <li><strong>Runtime detection:</strong> Falco — watches live syscalls inside running containers and alerts on suspicious behavior, installed via Helm</li>
+    </ul>
+
+    <h2 id="phase1">Phase 1: Standing up the cluster</h2>
+    <p>Docker and a local kind cluster first, confirmed healthy before layering any security tooling on top:</p>
+    <figure>
+      <img src="screenshots/k8s-docker-verify.png" alt="Terminal showing Docker's hello-world confirmation message, verifying the Docker installation works">
+      <figcaption>Docker installed and verified before anything else.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/k8s-cluster-ready.png" alt="kubectl get nodes showing the cloud-security-lab-control-plane node with status Ready">
+      <figcaption>The kind cluster up and reporting Ready.</figcaption>
+    </figure>
+
+    <h2 id="phase2">Phase 2: Scanning before anything runs</h2>
+    <p>Before deploying anything, I scanned two separate things: the container image itself (what vulnerabilities are baked into the software), and the Kubernetes deployment manifest (how the container is configured to run). I deliberately used an old, unpatched <code>nginx:1.14</code> image and wrote a manifest with a realistic, common mistake — <code>securityContext.privileged: true</code>, which gives a container full access to the host.</p>
+    <p><strong>Image scan:</strong> Trivy found <strong>217 known vulnerabilities</strong> in the image — 31 CRITICAL, 82 HIGH, 54 MEDIUM, 43 LOW. It also flagged something easy to miss just by looking at a running container: the underlying OS is Debian 9.8, which is <strong>past end of life</strong> — no longer receiving security updates at all, meaning every new vulnerability found in it from here forward will never be patched upstream.</p>
+    <figure>
+      <img src="screenshots/k8s-trivy-image-scan.png" alt="Trivy image scan results for nginx:1.14 showing 217 total vulnerabilities, including 31 CRITICAL and 82 HIGH severity findings">
+      <figcaption>217 vulnerabilities in a stock, unmodified nginx:1.14 image — including findings tied to an unsupported, end-of-life OS base.</figcaption>
+    </figure>
+    <p><strong>Config scan:</strong> scanning the deployment manifest itself (not the image) turned up <strong>17 misconfigurations</strong> from that single <code>privileged: true</code> line — no privilege escalation protection, a mutable root filesystem, default root access, missing resource limits, no seccomp profile, and more. One careless setting in a YAML file ripples out into over a dozen distinct, named security gaps.</p>
+    <figure>
+      <img src="screenshots/k8s-trivy-config-scan.png" alt="Trivy config scan of the Kubernetes deployment manifest showing 17 misconfigurations, including HIGH severity findings for privileged containers and missing readOnlyRootFilesystem">
+      <figcaption>17 misconfigurations traced back to one deliberately planted <code>privileged: true</code> setting.</figcaption>
+    </figure>
+
+    <h2 id="phase3">Phase 3: Auditing the cluster itself</h2>
+    <p>Scanning the image and the manifest covers what you're deploying — kube-bench covers something different: whether the cluster <em>itself</em> is configured securely, checked against the CIS Kubernetes Benchmark. The result: <strong>9 checks passed, 8 failed, 8 warned</strong> on a completely default, freshly-created local cluster.</p>
+    <figure>
+      <img src="screenshots/k8s-kubebench-summary.png" alt="kube-bench summary showing 9 checks PASS, 8 checks FAIL, and 8 checks WARN">
+      <figcaption>kube-bench's CIS Kubernetes Benchmark results against the default kind cluster.</figcaption>
+    </figure>
+    <p>The two most significant failures: <code>--anonymous-auth</code> was not set to <code>false</code> (the kubelet accepts unauthenticated requests), and <code>--authorization-mode</code> was set to <code>AlwaysAllow</code> (any request that does get through is automatically authorized, with no RBAC check at all). Together, those mean the kubelet API doesn't require valid credentials, and wouldn't enforce permissions even if it did. The remaining failures were file permission and ownership issues on the kubelet's own config files — less severe on their own, but still more exposed than they should be if someone gets local access to the node.</p>
+
+    <h2 id="phase4">Phase 4: Deploying for real and catching a live attack</h2>
+    <p>With the scans done, I deployed the misconfigured pod to the cluster anyway — on purpose, in a disposable local lab — specifically to see what detection looks like when a misconfiguration is actually exploited, not just flagged on paper. I installed Falco via Helm as a runtime security layer watching the cluster's live syscalls, then simulated exactly what an attacker does after breaking into a container: got an interactive shell inside the running pod with <code>kubectl exec -it ... -- /bin/bash</code>.</p>
+    <figure>
+      <img src="screenshots/k8s-falco-running.png" alt="kubectl get pods -n falco showing the Falco pod running with status Running">
+      <figcaption>Falco deployed and running in the cluster, watching for suspicious runtime activity.</figcaption>
+    </figure>
+    <p>The moment the shell was spawned, Falco caught it in real time:</p>
+    <figure>
+      <img src="screenshots/k8s-falco-alert.png" alt="Falco alert log: Notice - A shell was spawned in a container with an attached terminal, showing process=bash, parent=containerd-shim, user=root, and the exact pod and container name">
+      <figcaption>Falco's live alert: a shell spawned inside the container, with the exact pod, container, and user identified.</figcaption>
+    </figure>
+    <p>The alert itself is worth reading closely, because every field tells part of the story: <code>parent=containerd-shim</code> shows the shell's parent process is the container runtime, not the running application — the signature of someone <code>exec</code>-ing in from outside rather than the app spawning its own shell. <code>user=root, user_uid=0</code> ties straight back to the <code>privileged: true</code> misconfiguration Trivy and the config scan flagged earlier. And a <code>terminal</code> value being present confirms it was an interactive session — a human at a keyboard, not an automated script. Falco also named the exact pod, container, and namespace, which is what turns an alert into something a SOC analyst can actually act on.</p>
+
+    <h2 id="lessons">Lessons learned</h2>
+    <p>The strongest part of this project is how the four pieces connect into one chain rather than standing alone: a misconfigured container (caught pre-deployment by Trivy's config scan) was deployed anyway in this lab, exploited exactly the way the misconfiguration predicted, and caught again at runtime by Falco the moment it happened — defense in depth, not a single checkpoint. It also reinforced something true of Kubernetes specifically: a cluster can report every node as <code>Ready</code> and still fail more CIS benchmark checks than it passes, because secure defaults are not the default. Standing up a working cluster and standing up a <em>secure</em> cluster are two different jobs, and this project is what it looks like to actually check the difference rather than assume it.</p>
+
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · <a href="../index.html#cases">Back to case files</a>
+  </div>
+</footer>
+
+</body>
+</html>
