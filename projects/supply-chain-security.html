@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case 009 — Software Supply Chain Security: SBOMs, Scanning, and What Scanners Miss | Lawrence Mbah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="../index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="../index.html#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+    </nav>
+  </div>
+</header>
+
+<div class="file-header">
+  <div class="wrap">
+    <a class="back" href="../index.html#cases">&larr; All case files</a>
+    <div class="file-meta">
+      <span>CASE 009</span>
+      <span class="status resolved" style="display:inline-block;">RESOLVED</span>
+      <span>ENV: Ubuntu (VirtualBox), Syft, Grype</span>
+    </div>
+    <h1>Software supply chain security: inventorying every dependency, scanning it, and catching what a scanner can't</h1>
+    <p style="max-width:60ch; color:var(--ink-soft);">An app with deliberately outdated dependencies, inventoried into a software bill of materials, scanned for known vulnerabilities, fixed and gated like a CI pipeline would — then tested with a simulated poisoned dependency to show where a clean scan stops being enough.</p>
+    <div class="stack">
+      <span class="tag-pill">Supply Chain Security</span>
+      <span class="tag-pill">SBOM</span>
+      <span class="tag-pill">Syft</span>
+      <span class="tag-pill">Grype</span>
+      <span class="tag-pill">DevSecOps</span>
+    </div>
+  </div>
+</div>
+
+<article class="wrap">
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#environment">Environment</a>
+    <a href="#phase1">Phase 1: The target app and its inventory</a>
+    <a href="#phase2">Phase 2: Scanning the inventory</a>
+    <a href="#phase3">Phase 3: Gating and fixing</a>
+    <a href="#phase4">Phase 4: The poisoned dependency</a>
+    <a href="#phase5">Phase 5: Catching it</a>
+    <a href="#lessons">Lessons learned</a>
+  </nav>
+
+  <div class="case-body">
+
+    <h2 id="summary">Summary</h2>
+    <p>Most of the code in a modern application was written by someone else. Every library an app pulls in is a link in its supply chain, and a weak link — an old version with a known flaw, or a package that was never what it claimed to be — becomes the app's problem. Case 005 put scanning into a CI/CD pipeline. This case goes underneath that: what exactly is in the app, which of it is known to be vulnerable, and what happens when the problem is not a known vulnerability at all. I built a small app with outdated dependencies, produced a software bill of materials (SBOM — a list of every component), scanned it, fixed it, and then simulated a poisoned dependency to see what a vulnerability scanner does and doesn't catch.</p>
+
+    <h2 id="environment">Environment and stack</h2>
+    <ul>
+      <li><strong>Platform:</strong> Ubuntu running in VirtualBox</li>
+      <li><strong>Inventory:</strong> Syft — reads an application and lists its components, exporting a CycloneDX SBOM</li>
+      <li><strong>Vulnerability scanning:</strong> Grype — checks an SBOM against a database of published vulnerabilities, and can fail a build above a chosen severity</li>
+      <li><strong>Method:</strong> manifest-level scanning of a Python <code>requirements.txt</code>; nothing was installed or run, so the whole analysis after the one-time database download worked offline</li>
+    </ul>
+
+    <h2 id="phase1">Phase 1: The target app and its inventory</h2>
+    <p>The target is a tiny Flask app whose <code>requirements.txt</code> pins five deliberately old libraries: Flask 0.12, Jinja2 2.10, PyYAML 5.3, Requests 2.19.1 and urllib3 1.24.1. Syft turned that into an inventory of five components.</p>
+    <figure>
+      <img src="screenshots/supply-syft-sbom.png" alt="Syft table output listing five Python packages: flask 0.12, jinja2 2.10, pyyaml 5.3, requests 2.19.1 and urllib3 1.24.1">
+      <figcaption>The inventory: five packages, each with an exact version — the raw material for the SBOM.</figcaption>
+    </figure>
+    <p>One limit worth stating plainly: because Syft was reading a requirements file rather than an installed environment, it listed the five pinned libraries and not the further libraries those pull in. A real SBOM generated from a built image or installed environment is more complete.</p>
+
+    <h2 id="phase2">Phase 2: Scanning the inventory</h2>
+    <p>Grype scanned the SBOM against its vulnerability database and found <strong>30 known vulnerabilities across the five packages: 2 critical, 12 high, 15 medium and 1 low</strong>. All 30 had a fixed version available — none of this was unfixable, it was just old.</p>
+    <figure>
+      <img src="screenshots/supply-grype-before.png" alt="Grype results showing 30 vulnerability matches: 2 critical, 12 high, 15 medium, 1 low, with a table of packages such as requests, pyyaml, flask, jinja2 and urllib3">
+      <figcaption>30 matches from five pinned libraries, each listed with the version that fixes it.</figcaption>
+    </figure>
+
+    <h2 id="phase3">Phase 3: Gating the build, then fixing it</h2>
+    <p>To test the result the way a pipeline would, I ran Grype with a failure threshold: <code>--fail-on high</code>. Because high and critical findings exist, Grype reported that vulnerabilities were found at or above the threshold and exited with <strong>code 2</strong>, the signal a CI step uses to block a build.</p>
+    <figure>
+      <img src="screenshots/supply-gate-fail.png" alt="Grype output with a failed scan marker, 30 vulnerability matches, an error about vulnerabilities at or above the severity threshold, and exit code: 2">
+      <figcaption>The gate in action: exit code 2, so a pipeline would stop here.</figcaption>
+    </figure>
+    <p>I then upgraded every dependency to a fixed version (Flask 3.1.3, Requests 2.33.0, Jinja2 3.1.6, PyYAML 6.0.2, urllib3 2.8.0) and scanned again. Result: <strong>0 vulnerabilities</strong>, and the same gate returned <strong>exit code 0</strong>, meaning the build would pass.</p>
+    <figure>
+      <img src="screenshots/supply-fixed-clean.png" alt="Grype output showing 0 vulnerability matches and the message No vulnerabilities found">
+      <figcaption>After upgrading: zero matches.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/supply-gate-pass.png" alt="Terminal showing the fixed SBOM scanned with fail-on high, 0 vulnerability matches, and exit code: 0">
+      <figcaption>The same gate now passes with exit code 0 — the before-and-after pair for the build.</figcaption>
+    </figure>
+    <p>This check was done on the manifest only: it shows the pinned versions have no published vulnerabilities, not that the upgraded app was run and tested. In a real project, upgrading across major versions (Flask 0.12 to 3.x) needs code changes and testing before shipping.</p>
+
+    <h2 id="phase4">Phase 4: The poisoned dependency</h2>
+    <p>A clean scan answers one question: does anything in this list have a <em>known, published</em> vulnerability? It does not answer whether everything in the list should be there. To test that gap, I added a made-up package name, <code>requestss</code> — a one-letter typo of <code>requests</code>, the pattern behind typosquatting attacks, where a malicious package is published under a name a developer might mistype. In this lab it was only a line in a text file: nothing was installed, downloaded or run.</p>
+    <p>Grype scanned the new SBOM and reported <strong>"No vulnerabilities found"</strong>.</p>
+    <figure>
+      <img src="screenshots/supply-poisoned-clean.png" alt="Terminal showing the poisoned requirements file being scanned by Grype, with 0 vulnerability matches and the message No vulnerabilities found">
+      <figcaption>The suspicious package passes the vulnerability scan, because there is no published vulnerability for it to match.</figcaption>
+    </figure>
+    <p>That result is expected, and it is the point. A newly published malicious package typically has no vulnerability entry yet, so a scanner built around known vulnerabilities has nothing to match it against. A green scan does not mean a safe dependency list.</p>
+
+    <h2 id="phase5">Phase 5: Catching it</h2>
+    <p>What does catch it is comparing against a list of what's approved. I kept the fixed component list as the approved baseline and compared it with the new one. The comparison showed one extra line: <code>requestss</code>.</p>
+    <figure>
+      <img src="screenshots/supply-diff-catch.png" alt="Terminal showing a diff between approved.txt and new.txt with the single added line: requestss">
+      <figcaption>The unexpected component, flagged by comparing the new inventory to the approved one.</figcaption>
+    </figure>
+    <p>In a pipeline this becomes a rule: if the SBOM contains a component that is not in the approved baseline, the change needs a human to review it before it merges. Beyond what this lab ran, two further defences are standard practice: <strong>pinning dependencies with hashes</strong> (so the installer refuses a file that doesn't match the one that was reviewed — for example <code>pip install --require-hashes</code>), and using a private package index for internal packages, so a public package with the same name cannot replace them. I did not run those two here.</p>
+
+    <h2 id="lessons">Lessons learned</h2>
+    <p>The most useful part of this project was the contrast between two clean results. The first ("0 vulnerabilities" on the upgraded app) was earned: 30 findings were fixed by upgrading. The second ("No vulnerabilities found" on the poisoned list) was a false comfort. Same tool, same message, opposite meaning. A vulnerability scanner is good at one job — finding known problems in components you already have — and is blind to an unknown or malicious component that was never reported. Defending the supply chain means layering controls: an inventory so you know what you have, a scanner for what is known, a gate so findings block builds, and an approved baseline with hash pinning so new or altered components get noticed. No single tool in that list is enough on its own.</p>
+
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · <a href="../index.html#cases">Back to case files</a>
+  </div>
+</footer>
+
+</body>
+</html>
