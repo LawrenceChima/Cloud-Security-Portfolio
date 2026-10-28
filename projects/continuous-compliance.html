@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case 010 — Continuous Compliance: Mapping SOC 2 and ISO 27001 Controls to Automated Checks | Lawrence Mbah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .matrix { width:100%; max-width:100%; border-collapse:collapse; font-size:0.92rem; margin:1rem 0 1.5rem; }
+  .matrix th, .matrix td { text-align:left; padding:0.5rem 0.6rem; border-bottom:1px solid rgba(128,128,128,0.35); vertical-align:top; }
+  .matrix th { font-weight:600; }
+  .table-wrap { overflow-x:auto; }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark"><a href="../index.html">Lawrence Mbah</a></div>
+    <nav>
+      <a href="../index.html#cases">Case files</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+    </nav>
+  </div>
+</header>
+
+<div class="file-header">
+  <div class="wrap">
+    <a class="back" href="../index.html#cases">&larr; All case files</a>
+    <div class="file-meta">
+      <span>CASE 010</span>
+      <span class="status resolved" style="display:inline-block;">RESOLVED</span>
+      <span>ENV: Ubuntu (VirtualBox), Bash, cron, Lynis</span>
+    </div>
+    <h1>Continuous compliance: mapping SOC 2 and ISO 27001 controls to automated checks</h1>
+    <p style="max-width:60ch; color:var(--ink-soft);">Ten security controls on a Linux host, each tied to an ISO 27001:2022 Annex A control and a SOC 2 criterion, checked by a script that writes timestamped evidence, run on a schedule, and tested by deliberately breaking one control to see whether the check notices.</p>
+    <div class="stack">
+      <span class="tag-pill">Compliance as Code</span>
+      <span class="tag-pill">SOC 2</span>
+      <span class="tag-pill">ISO 27001</span>
+      <span class="tag-pill">Linux Hardening</span>
+      <span class="tag-pill">Lynis</span>
+    </div>
+  </div>
+</div>
+
+<article class="wrap">
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#scope">Scope</a>
+    <a href="#matrix">Control matrix</a>
+    <a href="#baseline">Phase 1: Baseline</a>
+    <a href="#remediation">Phase 2: Remediation</a>
+    <a href="#continuous">Phase 3: Continuous checks</a>
+    <a href="#drift">Phase 4: Drift test</a>
+    <a href="#accepted">Accepted risks and findings</a>
+    <a href="#lessons">Lessons learned</a>
+  </nav>
+
+  <div class="case-body">
+
+    <h2 id="summary">Summary</h2>
+    <p>SOC 2 and ISO 27001 both ask an organisation to show, with evidence, that its security controls exist and keep working. A policy document does not do that. Evidence that was produced automatically, on a schedule, with a timestamp, does. This case turns that idea into a small working system on one Ubuntu machine: ten controls, each mapped to an ISO 27001:2022 Annex A control and a SOC 2 criterion; a Bash script that checks every one and writes a dated evidence report; a first run that exposed failures; fixes; a schedule so the check repeats by itself; and a deliberate change to prove the check catches drift.</p>
+    <p>Results: the script went from <strong>5 of 10 controls passing to 9 of 10</strong>, and the Lynis hardening index went from <strong>57 to 59 to 62</strong>. The one remaining failure, disk encryption, is documented as an accepted risk with a reason.</p>
+
+    <h2 id="scope">Scope and honest limits</h2>
+    <ul>
+      <li>This is a single Ubuntu virtual machine. It is <strong>mapped to</strong> SOC 2 and ISO 27001 controls; it is not "compliant with" either. Real certification covers an organisation's people, processes and policies, and is judged by an auditor.</li>
+      <li>The ten checks cover a small, representative slice of the controls named below, not the full SOC 2 Trust Services Criteria or all of Annex A.</li>
+      <li>A passing check shows a setting is in place at that moment. It does not prove the control is effective in every way (see the findings on updates below).</li>
+    </ul>
+
+    <h2 id="matrix">The control matrix</h2>
+    <p>Each row ties one technical check to the standards. The IDs are the ones the script prints in its evidence report.</p>
+    <div class="table-wrap">
+    <table class="matrix">
+      <thead><tr><th>ID</th><th>Check</th><th>ISO 27001:2022</th><th>SOC 2</th></tr></thead>
+      <tbody>
+        <tr><td>C1</td><td>SSH root login disabled (or no SSH server)</td><td>A.8.5</td><td>CC6.1</td></tr>
+        <tr><td>C2</td><td>SSH empty passwords refused (or no SSH server)</td><td>A.8.5</td><td>CC6.1</td></tr>
+        <tr><td>C3</td><td>Host firewall (ufw) active</td><td>A.8.20</td><td>CC6.6</td></tr>
+        <tr><td>C4</td><td>Automatic security updates enabled</td><td>A.8.8</td><td>CC7.1</td></tr>
+        <tr><td>C5</td><td>Audit logging (auditd) running</td><td>A.8.15</td><td>CC7.2</td></tr>
+        <tr><td>C6</td><td>Password minimum length 12 or more</td><td>A.5.17</td><td>CC6.1</td></tr>
+        <tr><td>C7</td><td>No accounts with empty passwords</td><td>A.5.17</td><td>CC6.1</td></tr>
+        <tr><td>C8</td><td>/etc/shadow permissions 640 or stricter</td><td>A.8.3</td><td>CC6.1</td></tr>
+        <tr><td>C9</td><td>Clock synchronised (NTP)</td><td>A.8.17</td><td>CC7.2</td></tr>
+        <tr><td>C10</td><td>Disk encryption (LUKS) present</td><td>A.8.24</td><td>CC6.1</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>How the script works: each check is one line that runs a command and records PASS if the command succeeds and FAIL if it does not. It prints a Markdown table and saves it to a file named with the date and time, so every run leaves its own evidence file. The script must be run with <code>sudo</code> because some checks read protected files such as <code>/etc/shadow</code>.</p>
+
+    <h2 id="baseline">Phase 1: Baseline</h2>
+    <p>The first run, on a freshly installed machine, passed <strong>5 of 10</strong>. The five failures were the host firewall (C3), audit logging (C5), password minimum length (C6), clock synchronisation (C9) and disk encryption (C10). A separate Lynis audit gave a hardening index of <strong>57</strong>.</p>
+
+    <h2 id="remediation">Phase 2: Remediation</h2>
+    <p>I fixed four of the five failures: enabled the ufw firewall, installed and started auditd, set a password minimum length of 12 in the password-quality settings, and turned on network time synchronisation. The script then passed <strong>9 of 10</strong> and Lynis rose to <strong>59</strong>.</p>
+    <p>A second round went after Lynis suggestions that were cheap and safe to apply: a stricter default file-permission mask (<code>UMASK 027</code>), disabling core dumps through <code>/etc/security/limits.conf</code>, and installing <code>needrestart</code>. Lynis rose to <strong>62</strong> out of 252 tests performed. The umask change is visible in the evidence files themselves: the two oldest reports are readable by any user on the machine, while reports created after the change are readable only by their owner and group.</p>
+
+    <h2 id="continuous">Phase 3: Making it continuous</h2>
+    <p>A one-off check is a snapshot. To make it continuous, I scheduled the script with cron, Ubuntu's built-in job scheduler, as a file in <code>/etc/cron.d/</code>. To prove the schedule works I first set it to run every minute, then waited. New evidence files appeared on their own, with timestamps one minute apart and no action from me.</p>
+    <figure>
+      <img src="screenshots/comp-cron-schedule.png" alt="Terminal showing the cron file being created in /etc/cron.d with a PATH line and an every-minute schedule that runs compliance-check.sh as root">
+      <figcaption>The schedule: a cron entry that runs the compliance script as root. The PATH line is needed because cron runs with a minimal environment and would not otherwise find tools like <code>ufw</code>.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/comp-auto-evidence.png" alt="Directory listing showing evidence report files created one minute apart, owned by root with permissions rw-r-----">
+      <figcaption>Evidence created by the scheduler alone: reports at 19:32, 19:33, 19:34, 19:35 and 19:36. They are owned by root and not readable by other users.</figcaption>
+    </figure>
+    <p>For a real deployment the every-minute schedule is far too frequent; a weekly or daily run is more sensible. The every-minute setting was a test, not a recommendation.</p>
+
+    <h2 id="drift">Phase 4: Testing for drift</h2>
+    <p>Drift is when a control that was once in place quietly stops being true: someone disables a firewall to troubleshoot and forgets to turn it back on. A monitoring script is only worth having if it notices. To test that, I turned the firewall off with <code>sudo ufw disable</code> and re-ran the script.</p>
+    <figure>
+      <img src="screenshots/comp-drift-fail.png" alt="Evidence report showing C3 Host firewall (ufw) active with result FAIL, and a summary of 8 passed, 2 failed">
+      <figcaption>The check catches it: C3 flips to FAIL and the summary drops to 8 passed, 2 failed.</figcaption>
+    </figure>
+    <p>I then re-enabled the firewall and re-ran the script, which returned to 9 passed and 1 failed. The two evidence reports, one failing and one passing, are a before-and-after record of a control breaking and being restored.</p>
+    <figure>
+      <img src="screenshots/comp-drift-restored.png" alt="Evidence report after re-enabling the firewall showing C3 PASS and a summary of 9 passed, 1 failed">
+      <figcaption>After the fix: C3 passes again, back to 9 passed and 1 failed.</figcaption>
+    </figure>
+    <p>One limit: in this lab nothing alerts a person when a check fails. The failure is written to the evidence file. A production setup would send a notification when a run contains a FAIL.</p>
+
+    <h2 id="accepted">Accepted risks and findings</h2>
+    <p><strong>Disk encryption (C10) left failing, on purpose.</strong> The machine is a throwaway virtual machine that holds no real data, and encrypting a disk that is already installed is not practical without reinstalling. In a real environment this would be an accepted risk only if a risk owner signed it off, or the fix would be to enable encryption at install time. A failing check with a written reason is more honest than a check that is quietly removed.</p>
+    <p><strong>Other Lynis suggestions deliberately skipped:</strong> a boot-loader password, separate disk partitions, USB storage restrictions, disabling rarely used network protocols, and an intrusion-prevention tool such as fail2ban. These add effort without much benefit on an isolated lab machine, and a real system would decide on each one against its own risks.</p>
+    <p><strong>Finding: a control switched on is not the same as a control effective.</strong> Check C4 passes, because automatic security updates are enabled. Yet the machine still reported hundreds of packages not upgraded, and <code>needrestart</code> listed services still running older library versions. The check answers "is the setting on?" and not "is the machine actually up to date?". A stronger check would count outstanding security updates. I left the updates alone in the lab to save data, and noted it here.</p>
+
+    <h2 id="lessons">Lessons learned</h2>
+    <p>The most useful result was the gap between a setting and its effect. A script can confirm that automatic updates are enabled while the machine remains behind on patches, so each check needs to be written to test the outcome that matters and not only the switch. The second lesson is that evidence has to be trustworthy: reports were first readable by every user, and tightening the default permissions fixed that. The third is that mapping makes the work legible to others. When each check carries an ISO 27001 and SOC 2 reference, a failed line reads as "this control failed", which is how an auditor or a manager thinks, and not as a stray technical error.</p>
+
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    Lawrence Mbah (Chima Mbah) · <a href="../index.html#cases">Back to case files</a>
+  </div>
+</footer>
+
+</body>
+</html>
